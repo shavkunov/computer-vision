@@ -18,6 +18,8 @@ import pims
 from _corners import FrameCorners, CornerStorage, StorageImpl
 from _corners import dump, load, draw, without_short_tracks, create_cli
 from sklearn.neighbors import KDTree
+
+
 # based on : https://opencv-python-tutroals.readthedocs.io/en/latest/py_tutorials/py_video/py_lucas_kanade/py_lucas_kanade.html
 
 class _CornerStorageBuilder:
@@ -34,12 +36,13 @@ class _CornerStorageBuilder:
     def build_corner_storage(self):
         return StorageImpl(item[1] for item in sorted(self._corners.items()))
 
+
 def check_corner(corner_pos, corner_id, tree, min_dist):
-    dist, t_ids = tree.query([corner_pos], k=3)
+    dist, t_ids = tree.query([corner_pos], k=2)
 
     check = True
     for pos_id, d in zip(t_ids[0], dist[0]):
-        if pos_id != corner_id and d < min_dist / 2:
+        if pos_id != corner_id and d < min_dist / 2.0:
             check = False
 
     return check
@@ -59,14 +62,14 @@ def filter_points(positions, ids, tree, min_dist):
 
     return np.array(ret_pos), np.array(new_ids)
 
+
 def _build_impl(frame_sequence: pims.FramesSequence,
                 builder: _CornerStorageBuilder) -> None:
     image_0 = frame_sequence[0]
-    min_distance = 5
     corners_amount = 500
     feature_params = dict(maxCorners=corners_amount,
-                          qualityLevel=0.3,
-                          minDistance=min_distance,
+                          qualityLevel=0.07,
+                          minDistance=20,
                           blockSize=7)
 
     # Parameters for lucas kanade optical flow
@@ -87,7 +90,7 @@ def _build_impl(frame_sequence: pims.FramesSequence,
     for pos in p0:
         positions.append(pos[0])
 
-    tree = KDTree(positions, leaf_size=10, metric="l2")
+    min_distance = 35
     for frame, image_1 in enumerate(frame_sequence[1:], 1):
         image1_byte = np.uint8(image_1 * 255.0)
         p1, st, err = cv2.calcOpticalFlowPyrLK(image0_byte, image1_byte, p0, None, **lk_params)
@@ -102,19 +105,17 @@ def _build_impl(frame_sequence: pims.FramesSequence,
 
         positions = new_positions
         ids = new_ids
-        tree = KDTree(positions, leaf_size=10, metric="l2")
-
-        # filter points
+        tree = KDTree(positions, leaf_size=15, metric="l2")
         positions, ids = filter_points(positions, ids, tree, min_distance)
 
         # add new ones
         if len(p0) < corners_amount:
-            p2 = cv2.goodFeaturesToTrack(image_1, mask=None, **feature_params)
-            if p2 is not None:
-                new_positions = []
-                new_ids = []
-                p_new = []
+            prev_elems = np.ones(image_1.shape, dtype=np.uint8)
+            for point in positions:
+                cv2.circle(prev_elems, tuple(point), 20, color=0, thickness=cv2.FILLED)
 
+            p2 = cv2.goodFeaturesToTrack(image_1, mask=prev_elems, **feature_params)
+            if p2 is not None:
                 for pos in p2:
                     if len(ids) + len(new_ids) == corners_amount:
                         break
@@ -126,23 +127,20 @@ def _build_impl(frame_sequence: pims.FramesSequence,
 
                         if np.linalg.norm(np.array([x - x1, y - y1])) < min_distance:
                             c = False
+                            # print("%s %s is to close: %s %s " % (x, y, x1, y1))
                             break
 
                     if not c:
                         continue
 
-                    new_positions.append(pos[0])
-                    new_ids.append(next_id)
-                    p_new.append(pos)
+                    ids = np.concatenate([ids, [next_id]])
+                    p0 = np.concatenate([p0, [pos]])
+                    positions = np.concatenate([positions, [pos[0]]])
                     next_id += 1
 
-                if len(p_new) > 0:
-                    ids = np.concatenate([ids, new_ids])
-                    p0 = np.concatenate([p0, p_new])
-                    positions = np.concatenate([positions, new_positions])
-
+        # print(p0.shape)
         corners = FrameCorners(ids, p0.reshape((-1, 2)), np.full(len(p0), 10))
-        #print(len(ids))
+        # print(len(ids))
         image0_byte = image1_byte
         builder.set_corners_at_frame(frame, corners)
 
