@@ -70,7 +70,7 @@ def _build_impl(frame_sequence: pims.FramesSequence,
     feature_params = dict(maxCorners=corners_amount,
                           qualityLevel=0.07,
                           minDistance=20,
-                          blockSize=7)
+                          blockSize=5)
 
     # Parameters for lucas kanade optical flow
     lk_params = dict(winSize=(15, 15),
@@ -94,19 +94,14 @@ def _build_impl(frame_sequence: pims.FramesSequence,
     for frame, image_1 in enumerate(frame_sequence[1:], 1):
         image1_byte = np.uint8(image_1 * 255.0)
         p1, st, err = cv2.calcOpticalFlowPyrLK(image0_byte, image1_byte, p0, None, **lk_params)
+        p2, st, err = cv2.calcOpticalFlowPyrLK(image1_byte, image0_byte, p1, None, **lk_params)
 
-        new_ids = np.array([id for i, id in enumerate(ids) if st[i][0] == 1])
-        p0 = np.array([p for i, p in enumerate(p1) if st[i][0] == 1])
+        delta = np.abs(p0 - p2).reshape(-1, 2).max(-1)
+        filtered = delta < 1
 
-        new_positions = []
-        for i, id in enumerate(ids):
-            if st[i][0] == 1:
-                new_positions.append(positions[i])
-
-        positions = new_positions
-        ids = new_ids
-        tree = KDTree(positions, leaf_size=15, metric="l2")
-        positions, ids = filter_points(positions, ids, tree, min_distance)
+        ids = ids[filtered]
+        p0 = p1[filtered]
+        positions = [positions[i] for i in range(len(positions)) if filtered[i]]
 
         # add new ones
         if len(p0) < corners_amount:
@@ -117,7 +112,7 @@ def _build_impl(frame_sequence: pims.FramesSequence,
             p2 = cv2.goodFeaturesToTrack(image_1, mask=prev_elems, **feature_params)
             if p2 is not None:
                 for pos in p2:
-                    if len(ids) + len(new_ids) == corners_amount:
+                    if len(ids) == corners_amount:
                         break
 
                     x, y = pos[0]
