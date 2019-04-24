@@ -16,6 +16,7 @@ from corners import CornerStorage
 from data3d import CameraParameters, PointCloud, Pose
 import frameseq
 from _camtrack import *
+from ba import run_bundle_adjustment
 
 
 def first_init(frame_corners1, frame_corners2, intrinsic_mat, tr_parameters):
@@ -93,6 +94,7 @@ def _track_camera(corner_storage: CornerStorage, intrinsic_mat: np.ndarray) \
     current_frames = set(range(len(corner_storage)))
     current_frames.remove(0)
     current_frames.remove(idx)
+    step = 0
     while len(current_frames) > 0:
         mask = np.ones(len(frame_matrix))
         fail = False
@@ -130,6 +132,14 @@ def _track_camera(corner_storage: CornerStorage, intrinsic_mat: np.ndarray) \
 
             frame_matrix[best_frame_idx] = rodrigues_and_translation_to_view_mat3x4(rvec, tvec)
             print('Added frame {}'.format(best_frame_idx))
+            step += 1
+            if step % 5 == 0 and step > 7:
+                frame_matrix[best_frame_idx - 5: best_frame_idx], id2pos = \
+                    run_bundle_adjustment(intrinsic_mat,
+                                          list(corner_storage)[best_frame_idx - 5: best_frame_idx],
+                                          tr_parameters.max_reprojection_error,
+                                          frame_matrix[best_frame_idx - 5: best_frame_idx],
+                                          id2pos)
 
             break
 

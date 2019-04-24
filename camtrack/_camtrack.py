@@ -12,6 +12,7 @@ __all__ = [
     'draw_residuals',
     'eye3x4',
     'project_points',
+    'view_mat3x4_to_rodrigues_and_translation',
     'rodrigues_and_translation_to_view_mat3x4',
     'to_opencv_camera_mat3x3',
     'triangulate_correspondences',
@@ -242,6 +243,13 @@ def rodrigues_and_translation_to_view_mat3x4(r_vec: np.ndarray,
     rot_mat, _ = cv2.Rodrigues(r_vec)
     view_mat = np.hstack((rot_mat, t_vec))
     return view_mat
+
+
+def view_mat3x4_to_rodrigues_and_translation(view_mat: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    r_mat = view_mat[:, :3]
+    t_vec = view_mat[:, 3]
+    r_vec, _ = cv2.Rodrigues(r_mat)
+    return r_vec, t_vec
 
 
 class PointCloudBuilder:
